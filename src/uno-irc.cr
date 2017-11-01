@@ -364,8 +364,12 @@ module UnoIrc
 #    msg.reply self.colorize({{msg_str}})
 #  end
 
+  def self.bot
+    @@bot.not_nil!
+  end
+
   def self.start
-    bot = FastIRCWrapper.new server: "irc.rizon.net", nick: "BetterUNOBot2", port: 6667_u16, ssl: false
+    @@bot = FastIRCWrapper.new server: "irc.rizon.net", nick: "BetterUNOBot2", port: 6667_u16, ssl: false
 
     bot.on_message do |msg|
       msg.to_s(STDOUT)
@@ -433,9 +437,11 @@ module UnoIrc
     end
   end
 
-  def
+  def self.reply(message : String)
+    bot.send FastIRC::Message.new("PRIVMSG", [@@chan, message])
+  end
 
-  def command_handler : CommandHandler
+  def self.command_handler : CommandHandler
     if (ch = @@command_handler)
       return ch
     else

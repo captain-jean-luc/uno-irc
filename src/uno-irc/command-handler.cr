@@ -1,41 +1,19 @@
 require "./command-parser"
 
 module UnoIrc
-  class CommandHandler#(T)
+  record Command, name : String, args : Array(String) do
+    def initialize(a : Array(String))
+      raise ArgumentError.new if a.empty?
+      @name = a[0]
+      @args = a[1..-1]
+    end
+  end
 
-    # Arguments for a command callback:
-    #   Command arguments : Array(String)
-    #   Passthrough : T
-    # Returns
-    #   Response : String?
-    #     Nil means no response.
+  class CommandHandler
+    alias Callback = Proc(Command, Nil)
+    alias WrapperCallback = Proc(Command, Callback, Nil)
 
-    alias T = Hash(Symbol, String)
-
-    #record Callback, value : Proc(Array(String), T, Nil) do
-    #  delegate call, to: value
-    #end
-    alias Callback = Proc(Array(String), T, Nil)
-    #macro callback
-    #  (Proc(Array(String), T, Nil))
-    #end
-
-    #record WrapperCallback, value : Proc(String, Array(String), T, Proc(Array(String), T, Nil), Nil) do
-    #  delegate call, to: value
-    #end
-    alias WrapperCallback = Proc(String, Array(String), T, Callback, Nil)
-    #macro wrapperCallback
-    #  (Proc(String, Array(String), T, Callback, Nil))
-    #end
-
-    #record WrapperCallbackWrapper, value : WrapperCallback
-
-    @wrappers : Hash(Symbol, WrapperCallback)
-    #@procs : Array(
-    #    NamedTuple(match: (String | Regex), cb: Callback, wrappers: Array(Symbol))
-    #  )
-    @default_wrappers : Array(Symbol)
-    @on_invalid : Proc(String, T, Nil)?
+    @on_invalid : Proc(String, Nil)?
 
     def initialize
       @wrappers = Hash(Symbol, WrapperCallback).new
@@ -68,7 +46,7 @@ module UnoIrc
     end
 
     def on(*commands : (String | Regex),
-           wrap : Enumerable(Symbol) | Symbol = [] of Symbol,
+           wrap : (Enumerable(Symbol) | Symbol) = [] of Symbol,
            &callback : Callback) : Nil
       if wrap.is_a? Symbol
         wrap = [wrap]
@@ -84,58 +62,55 @@ module UnoIrc
       end
     end
 
-    def on_invalid(&callback : Proc(String, T, Nil))
+    def on_invalid(&callback : Proc(Command, Nil))
       unless @default_wrappers.empty?
         raise ArgumentError.new("Cannot define on_invalid inside with_wrapper")
       end
       @on_invalid = callback
     end
 
-    def handle_command(cmd : String, passthru : T) : Nil
+    def handle_command(cmd : String) : Nil
       args = CommandParser.parse(cmd)
-      pp cmd, args
-      command = args.first
-      args = args[1..-1]
-      handle_command(command, args, passthru)
+      #pp cmd, args
+      command = Command.new(args)
+      handle_command(command)
     end
 
-    def handle_command(command : String, args : Array(String), passthru : T)
+    def handle_command(command : Command)
       handled = false
       @procs.each do |info|
         case (to_match = info[:match])
         when Regex
-          next if !to_match.match(command)
+          next if to_match.match(command).nil?
         when String
           next if to_match != command
         else
           raise "This isn't supposed to happen"
         end
         handled = true
-        handle_wrappers(info[:wrappers], command, args, passthru) do |na, np|
-          info.not_nil![:cb].call(na, np)
+        handle_wrappers(info[:wrappers], command) do |new_cmd|
+          info.not_nil![:cb].call(new_cmd)
         end
       end
       if !handled && !(oninval = @on_invalid).nil?
-        oninval.call(cmd, passthru)
+        oninval.call(command)
       end
     end
 
     private def handle_wrappers(wrappers : Array(Symbol),
-                                command : String,
-                                args : Array(String),
-                                passthru : T,
-                                &block : Proc(Array(String), T, Nil)) : Nil
+                                command : Command,
+                                &block : Proc(Command, Nil)) : Nil
       if wrappers.empty?
-        yield args, passthru
+        yield command
         return
       end
       this_wrapper = wrappers.last
-      cb = ->(new_args : Array(String), new_passthru : T){
-        handle_wrappers(wrappers[0...-1], command, new_args, new_passthru) do |na, np|
-          block.call(na, np)
+      cb = ->(new_cmd : Command){
+        handle_wrappers(wrappers[0...-1], new_cmd) do |cmd|
+          block.call(cmd)
         end
       }
-      @wrappers[this_wrapper].call(command, args, passthru, cb)
+      @wrappers[this_wrapper].call(command, cb)
     end
   end
 end
