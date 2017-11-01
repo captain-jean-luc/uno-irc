@@ -38,8 +38,8 @@ class FastIRCWrapper
   end
 
   def socket
-    raise NotConnectedError.new() if @socket.nil?
-    return @socket.not_nil!
+    raise NotConnectedError.new() if (s = @socket).nil?
+    return s
   end
 
   def connect

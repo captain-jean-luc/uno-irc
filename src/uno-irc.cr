@@ -1,8 +1,7 @@
 require "./uno-irc/*"
 require "./fast_irc_wrapper.cr"
-#require "CrystalIrc"
 
-struct FastIRC::Message
+struct FastIRC::Message # Some monkey-patching
   def params
     res = previous_def
     if res.nil?
