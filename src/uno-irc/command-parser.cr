@@ -1,19 +1,16 @@
 module UnoIrc
   module CommandParser
     WHITESPACE_CHARS = {'\t', ' '}
-    
+
     def self.parse(cmd : String) : Array(String)
       args = [] of String
       current_str = String::Builder.new
-      parser_state = :start
+      parser_state = :reading_arg
       reader = IO::Memory.new(cmd)
       while (c = reader.read_char)
         case parser_state
-        when :start
-          current_str << c
-          parser_state = :reading_arg
         when :reading_arg
-          if WHITESPACE_CHARS.includes? c
+          if WHITESPACE_CHARS.includes?(c) && reader.pos != 1
             args << current_str.to_s
             current_str = String::Builder.new
             parser_state = :skipping_whitespace

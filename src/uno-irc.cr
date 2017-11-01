@@ -26,28 +26,37 @@ module UnoIrc
   }
 
   CMD_PREFIX = "."
-    
+
   @@games = {} of String => Game
 
-  def self.pluralize(num : Int, singular : String, plural : String = singular+"s")
+  def self.pluralize(num : Int,
+                     singular : String,
+                     plural : String = singular+"s")
     return "#{num} " + (num == 1 ? singular : plural)
   end
-  
+
   def self.colorize(msg)
     "\x0300,01#{msg}"
   end
 
   def self.colorize(color : Color, msg : String, bold = true)
     num = COLOR_NUMS[color]
-    return (bold ? "\x02" : "") + "\x03#{num.to_s.rjust(2,'0')},01#{msg}" + "\x0F" + colorize("")
+    return String.build do |s|
+      s << "\x02" if bold
+      s << "\x03#{num.to_s.rjust(2,'0')},01#{msg}\x0F"
+      s << colorize("")
+    end
   end
 
   def self.hand_of(player : Player, game : Game)
     msg1 = "" #"Your hand: "
     msg2 = "" #"Playable cards: "
-    sorted = player.hand.sort_by{|c| {c.color_for_equality_test, c.class.to_s, c.number? || -1} }
+    sorted = player.hand.sort_by do |c|
+      {c.color_for_equality_test, c.class.to_s, c.number? || -1}
+    end
     sorted.each do |card|
-      cardstr = colorize(card.color_for_equality_test, "[#{card.to_s_short}]")+" "
+      cardstr =
+        colorize(card.color_for_equality_test, "[#{card.to_s_short}]")+" "
       msg1 += cardstr
       msg2 += cardstr if card.can_put_on?(game.top_card)
     end
@@ -82,19 +91,30 @@ module UnoIrc
       when Game::Skip
         s "#{upd.player.name} is skipped!"
       when Game::Drew
-        s "#{upd.player.name} draws " + self.pluralize(upd.howmany, "card") + "."
+        s("#{upd.player.name} draws "
+          + self.pluralize(upd.howmany, "card")
+          + ".")
         ho = self.hand_of(upd.player, game)
         np(upd.player, ho[0])
         np(upd.player, ho[1])
       when Game::SkipDraw
-        update_message = (upd.player.name + " " + (upd.forced ? "is forced to draw " : "draws ") + self.pluralize(upd.howmany, "card") + " and is skipped!")
+        update_message =
+          (upd.player.name
+           + " "
+           + (upd.forced ? "is forced to draw " : "draws ")
+           + self.pluralize(upd.howmany, "card")
+           + " and is skipped!")
         s update_message
         ho = self.hand_of(upd.player, game)
         np(upd.player, ho[0])
       when Game::DrawDeckEmpty
         s "The draw deck is empty! No cards drawn"
       when Game::DiscardToDraw
-        sender.privmsg channel, "\x01ACTION " + colorize("takes all but the top card from the discard, and reshuffles to make a new draw pile") + "\x01"
+        s("\x01ACTION "
+          + colorize(
+            "takes all but the top card from the discard, "+
+            "and reshuffles to make a new draw pile")
+          + "\x01")
       when Game::StartGame
         s "GAME START"
       when Game::EndGame
@@ -110,7 +130,8 @@ module UnoIrc
         top = game.top_card
         top_str = colorize(top.color_for_equality_test, "[#{top.to_s_short}]")
         if upd.match
-          s "Match! It is #{upd.player.name}'s turn again. Top card is #{top_str}."
+          s("Match! It is #{upd.player.name}'s turn again. "
+            + "Top card is #{top_str}.")
         else
           s "#{upd.player.name}'s turn. Top card is #{top_str}."
         end
@@ -137,7 +158,7 @@ module UnoIrc
 
 
     nilgame = nil
-    
+
     is_current_player = Proc(String | Player).new do
       player = nilgame.not_nil!.find_player(nick)
       if player.nil?
@@ -226,7 +247,7 @@ module UnoIrc
                 card_class = Reverse
               else #including 'e' or nil
                 ambiguous_r_count += 1
-              end                   
+              end
             when "g"
               color = Color::Green
             when "b"
@@ -255,7 +276,7 @@ module UnoIrc
           playable_cards = player.hand.select do |card|
             card.can_put_on?(game.top_card)
           end
-          
+
           if ambiguous_r_count == 1
             #if color.nil? && card_class == Wild
             #  color == Color::Red
@@ -284,7 +305,7 @@ module UnoIrc
           end
 
           #pp color, card_class, draw_num, number
-          
+
           # Based on all the above criteria, find the first card that should be played
           card_idx = player.hand.index do |card|
             #puts card.inspect
@@ -301,7 +322,7 @@ module UnoIrc
           end
 
           #pp card_idx
-          
+
           if card_idx.nil?
             return "@#{nick}, you cannot play or do not have that card."
           end
@@ -360,7 +381,7 @@ module UnoIrc
         end
       end
     end
-    
+
     bot.on("PRIVMSG") do |fast_irc_msg|
       channel_name = ""
       case fast_irc_msg.params.size
@@ -393,7 +414,7 @@ module UnoIrc
     bot.on("NICK") do |msg|
       self.nick(msg)
     end
-    
+
     bot.on("001") do
       bot.send FastIRC::Message.new("JOIN", ["#betterbottest"])
     end
@@ -404,10 +425,25 @@ module UnoIrc
 
     bot.connect
 
+    # If the main Fiber finishes, all the other fibers are killed.
+    # Since all the Important Stuff is happening in other fibers,
+    # we have to keep this one running.
     loop do
       sleep 1
     end
   end
+
+  def
+
+  def command_handler : CommandHandler
+    if (ch = @@command_handler)
+      return ch
+    else
+      c = @@command_handler = CommandHandler.new
+
+      c.make_wrapper :in_channel do |cmd, args, info, cb|
+        if info[:chan] == info[:nick]
+
 
   def self.test
     results = [] of Int32
