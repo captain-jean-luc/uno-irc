@@ -108,10 +108,10 @@ module UnoIrc
         yield command
         return
       end
-      this_wrapper = wrappers.last
+      this_wrapper = wrappers.first
       puts "handling #{this_wrapper} wrapper"
       cb = ->(new_cmd : Command){
-        handle_wrappers(wrappers[0...-1], new_cmd) do |cmd|
+        handle_wrappers(wrappers[1..-1], new_cmd) do |cmd|
           block.call(cmd)
         end
       }

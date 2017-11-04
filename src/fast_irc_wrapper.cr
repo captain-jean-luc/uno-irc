@@ -8,7 +8,7 @@ end
 
 class FastIRCWrapper
   alias Callback = FastIRC::Message ->
-  
+
   @socket : IO?
   @hooks = {} of String => Array(Callback)
   @global_hooks = [] of Callback
@@ -57,25 +57,25 @@ class FastIRCWrapper
   def privmsg(target : String, text : String)
     send(FastIRC::Message.new("PRIVMSG", [target, text]))
   end
-  
+
   def notice(target : String, text : String)
     send(FastIRC::Message.new("NOTICE", [target, text]))
   end
-  
+
   def on_message(&block : Callback)
     @global_hooks << block
   end
-  
+
   def on(cmd : String, &block : Callback)
     cmd = cmd.upcase
     @hooks[cmd] ||= [] of Callback
     @hooks[cmd] << block
   end
 
-  def send(msg : FastIRC::Message)
+  def send(msg : FastIRC::Message | String | Bytes)
     msg.to_s(socket)
   end
-  
+
   def send_line(data)
     s = socket
     s.print data
@@ -96,7 +96,7 @@ class FastIRCWrapper
     @global_hooks.each do |hook|
       spawn { hook.call(msg) }
     end
-    
+
     if (hooks = @hooks[msg.command.upcase]?)
       hooks.each do |hook|
         spawn { hook.call(msg) }

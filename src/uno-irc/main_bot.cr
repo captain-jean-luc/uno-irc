@@ -50,14 +50,14 @@ module UnoIrc
       end
 
       def colorize(msg)
-        "\x0300,01#{msg}"
+        "\x0F#{msg}"
       end
 
       def colorize(color : Color, msg : String, bold = true)
         num = COLOR_NUMS[color]
         return String.build do |s|
           s << "\x02" if bold
-          s << "\x03#{num.to_s.rjust(2,'0')},01#{msg}\x0F"
+          s << "\x03#{num.to_s.rjust(2,'0')}#{msg}\x0F"
           s << colorize("")
         end
       end
@@ -65,6 +65,9 @@ module UnoIrc
 
     @chan : String?
     @user : String?
+    @has_sudo : Bool = false
+    @msg : FastIRC::Message?
+    @pre : FastIRC::Prefix?
 
     def initialize(
           @command_prefix : String,
@@ -106,6 +109,9 @@ module UnoIrc
           @user = nil
         end
         @chan = nil
+        @msg = fast_irc_msg
+        @pre = pre
+        @has_sudo = false
         case fast_irc_msg.params.size
         when 1
           is_channel_msg = false
@@ -123,6 +129,8 @@ module UnoIrc
           @command_handler.handle_command(command_text)
         end
         @user = nil
+        @msg = nil
+        @pre = nil
       end
 
       @irc.on("PART") do |msg|
@@ -165,17 +173,6 @@ module UnoIrc
         @channels_to_join.each do |channel_name|
           @irc.send FastIRC::Message.new("JOIN", [channel_name])
         end
-        #DEBUG
-        ch = @command_handler
-        @chan = "#betterbottest"
-        @user = "jean-luc"
-        ch.handle_command "uno"
-        @user = "Andrio"
-        ch.handle_command "join"
-        @user = "jean-luc"
-        ch.handle_command "deal"
-        @chan = @user = nil
-        #END DEBUG
       end
 
       @irc.on("PING") do |msg|
@@ -215,14 +212,98 @@ module UnoIrc
       end
 
       ch.make_wrapper :is_game_master do |cmd, cb|
-        if user == game.players.first.name
+        if !@games.has_key? chan
+          reply "You've found a bug, this isn't supposed to happen"
+        elsif user == game.players.first.name || @has_sudo
           cb.call(cmd)
         else
           reply "Only the Game Master #{game.players.first.name} may use this command. You do not have the power!"
         end
       end
 
-      #TODO: sudo
+      ch.make_wrapper :privileged do |cmd, cb|
+        if @has_sudo
+          cb.call(cmd)
+        else
+          reply "You do not have permission to use that command"
+        end
+      end
+
+      ch.with_wrapper :privileged do
+        ch.on "joinchan" do |cmd|
+          if cmd.args.empty?
+            reply "must provide argument"
+            next
+          end
+          @irc.send FastIRC::Message.new("JOIN", [cmd.args.first])
+        end
+        ch.on "partchan" do |cmd|
+          if cmd.args.empty?
+            reply "must provide argument"
+            next
+          end
+          @irc.send FastIRC::Message.new("PART", [cmd.args.first])
+        end
+        ch.on "sendraw" do |cmd|
+          if cmd.args.empty?
+            reply "must provide argument"
+            next
+          end
+          puts "sending raw #{cmd.args.first.inspect}"
+          @irc.send cmd.args.first
+        end
+        ch.on "asuserchan" do |cmd|
+          if cmd.args.size < 3
+            reply "must provide at least three arguments (user, channel, and command)"
+            next
+          end
+
+          args = cmd.args.dup
+
+          new_user = args.pop
+          new_chan = args.pop
+          old_sudo = @has_sudo
+          old_user = @user
+          old_chan = @chan
+
+          @user = new_user
+          @chan = new_chan
+          @has_sudo = false
+          new_cmd = Command.new(args[0], args[1..-1])
+          @command_handler.handle_command(new_cmd)
+          @user = old_user
+          @chan = old_chan
+          @has_sudo = old_sudo
+        end
+      end
+
+      ch.on "sudo" do |cmd|
+        if cmd.args.join(" ").downcase == "make me a sandwich"
+          reply "Okay."
+        elsif cmd.args.empty?
+          reply "must provide argument"
+        else
+          if @pre.not_nil!.host == "enterprise.ncc-1701-D.captain"
+            @has_sudo = true
+            new_cmd = Command.new(cmd.args.first, cmd.args[1..-1])
+            @command_handler.handle_command(new_cmd)
+            @has_sudo = false
+          else
+            reply "You are not in the sudoers file. This incident will be reported."
+          end
+        end
+      end
+
+      ch.on "make" do |cmd|
+        if cmd.args.join(" ").downcase == "me a sandwich"
+          reply "do it yourself!"
+        end
+      end
+
+      ch.on "make me a sandwich" do
+        reply "do it yourself!"
+      end
+
       ch.on "info", "help", "h", "?" do
         reply "I am the Better UNO Bot version #{UnoIrc::VERSION}, by jean-luc. Type '#{@command_prefix}uno' to start a new game. Source available at: https://github.com/captain-jean-luc/uno-irc"
       end
@@ -307,9 +388,11 @@ module UnoIrc
 
       # Support commands like .p5 (with no space) instead of .p 5
       args = cmd.args.dup
-      m = /\Ap(.+)/.match(cmd.name)
-      if m && (extra = m[1]?)
-        args.unshift(extra)
+      if cmd.name != "play"
+        m = /\Ap(.+)/.match(cmd.name)
+        if m && (extra = m[1]?)
+          args.unshift(extra)
+        end
       end
 
       args.each do |arg|
@@ -372,7 +455,7 @@ module UnoIrc
         if (playable_cards.none?(&.is_a?(Reverse)) && card_class != Wild)
           # None of the playable cards are reverses, player must've meant color
           color = Color::Red
-        elsif (playable_cards.none?{|c| c.color_for_equality_test == Color::Red})
+        elsif (playable_cards.none?{|c| c.color_for_equality_test == Color::Red || c.is_a?(Wild)})
           # No red cards, must've meant reverse
           card_class = Reverse
         elsif color.nil? && card_class.nil?
