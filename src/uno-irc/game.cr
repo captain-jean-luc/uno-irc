@@ -50,10 +50,20 @@ module UnoIrc
       def initialize(@player : Player, @top : Card, @match : Bool = false)
       end
     end
-
-    class CommandError < Exception
+    struct NotEnoughCards < Update
+      getter dealt
+      def initialize(@dealt : Int32)
+      end
     end
-    
+    struct CommandError < Update
+      getter message
+      def initialize(@message : String)
+      end
+    end
+
+    #class CommandError < Exception
+    #end
+
     @players : Array(Player)
     @current_player_idx = 0
     @direction_bool = true #to handle reverse cards
@@ -66,7 +76,7 @@ module UnoIrc
     @has_drawn = false
 
     getter started, turn_counter, players
-    
+
     def initialize(@players = [] of Player, @draw = Deck.default_fill, &@on_update)
       @discard = Deck.new
     end
@@ -83,14 +93,21 @@ module UnoIrc
     def deal
       cmderr "Already started!" if @started
       cmderr "Not enough players!" if @players.size < 2
-      cmderr "Not enough cards!" if @draw.size < (@players.size * 7) + 1
+      cmderr "Not even a single card!" if @draw.empty?
       @draw.shuffle!
       @discard << @draw.pop
       if (c = top_card).is_a? Wild
-        #TODO: Should really make this random
-        c.choose_color(Color::Red)
+        c.choose_color NonwildColors.sample
       end
-      7.times do
+      7.times do |card_i|
+        if @draw.size < @players.size
+          if card_i == 0
+            cmderr "Not enough cards in the deck! Increase the number of cards or decrease the number of players"
+          else
+            event NotEnoughCards.new(card_i)
+            break
+          end
+        end
         @players.each do |player|
           player.hand << @draw.pop
         end
@@ -104,7 +121,7 @@ module UnoIrc
     def add_player(playername : String)
       add_player Player.new playername
     end
-    
+
     def add_player(player : Player)
       cmderr "Game already started!" if @started
       @players << player
@@ -128,7 +145,7 @@ module UnoIrc
         del_player player_idx
       end
     end
-    
+
     def del_player(idx : Int)
       next_player! if @current_player_idx == idx && @started
       deleted_player = @players.delete_at(idx)
@@ -144,7 +161,7 @@ module UnoIrc
     def top_card
       @discard.last
     end
-    
+
     def can_play?(card_idx, player = current_player)
       return false if !@started
       return player.hand[card_idx].can_put_on? top_card
@@ -167,12 +184,12 @@ module UnoIrc
       #at this point, @draw is garunteed to at least have one card
       player.hand << @draw.pop
       return true
-    end 
-    
+    end
+
     def draw?(how_many, player = current_player, skipdraw = false, forced = skipdraw)
       assert_started!
       drawn = 0
-      how_many.times do |i| #have to tell you, preoptimization is the root of all evil!
+      how_many.times do |i| #have to tell you, you can't go past warp 10! Otherwise we'll become space lizards.
         if draw_one?(player)
           drawn += 1
         else
@@ -216,13 +233,13 @@ module UnoIrc
         pass
       end
     end
-    
+
     def pass
       assert_started!
       next_player!
       event Turn.new(current_player, top_card)
-    end      
-    
+    end
+
     def play(card_idx, colorpick = nil, player = current_player) : Nil
       assert_started!
       cmderr "Cannot play that card" unless can_play?(card_idx)
@@ -276,8 +293,12 @@ module UnoIrc
     def end_game!
       end_game nil
     end
-    
-    def end_game(player)
+
+    def end_game(player_name : String)
+      end_game(find_player(player_name))
+    end
+
+    def end_game(player : Player?)
       assert_started!
       @started = false
       event EndGame.new(player)
@@ -299,20 +320,21 @@ module UnoIrc
     def empty_draw!
       @draw = Deck.new
     end
-    
+
     # FOR DEBUGGING/DISPLAY PURPOSES ONLY
     def nodraw
       new = self.dup
       new.empty_draw!
       return new
     end
-    
+
     private def event(update)
       @on_update.call(update)
     end
-    
-    private def cmderr(string)
-      raise CommandError.new(string)
+
+    private macro cmderr(string)
+      event CommandError.new({{string}})
+      return
     end
 
     private def assert_started!
@@ -320,6 +342,3 @@ module UnoIrc
     end
   end
 end
-    
-
-    

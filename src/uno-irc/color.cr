@@ -6,4 +6,6 @@ module UnoIrc
     Yellow
     Wild
   end
+
+  NonwildColors = {Color::Red, Color::Green, Color::Blue, Color::Yellow}
 end

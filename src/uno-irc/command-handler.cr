@@ -13,7 +13,7 @@ module UnoIrc
     alias Callback = Proc(Command, Nil)
     alias WrapperCallback = Proc(Command, Callback, Nil)
 
-    @on_invalid : Proc(String, Nil)?
+    @on_invalid : Proc(Command, Nil)?
 
     def initialize
       @wrappers = Hash(Symbol, WrapperCallback).new
@@ -77,18 +77,22 @@ module UnoIrc
     end
 
     def handle_command(command : Command)
+      puts "Attempting to handle command #{command}"
       handled = false
       @procs.each do |info|
+        puts "checking #{info}"
         case (to_match = info[:match])
         when Regex
-          next if to_match.match(command).nil?
+          next if to_match.match(command.name).nil?
         when String
-          next if to_match != command
+          next if to_match != command.name
         else
           raise "This isn't supposed to happen"
         end
+        puts "matched #{info}"
         handled = true
         handle_wrappers(info[:wrappers], command) do |new_cmd|
+          puts "calling with #{new_cmd}"
           info.not_nil![:cb].call(new_cmd)
         end
       end
@@ -105,6 +109,7 @@ module UnoIrc
         return
       end
       this_wrapper = wrappers.last
+      puts "handling #{this_wrapper} wrapper"
       cb = ->(new_cmd : Command){
         handle_wrappers(wrappers[0...-1], new_cmd) do |cmd|
           block.call(cmd)
